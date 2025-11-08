@@ -6,7 +6,7 @@
      * Class SimpleCache
      *
      * A simple caching class that stores API responses in JSON files.
-     * The cache is stored in the `resources/api/caches/` directory and is identified by a hash of the POST data and request URI.
+     * The cache is stored in the directory as specified in the SIMPLE_CACHE_DIRECTORY environment variable and is identified by a hash of the POST data and request URI.
      * The cache freshness duration can be specified, and the class provides methods to save, retrieve, and clear the cache.
      *
      */
@@ -164,7 +164,7 @@
         /**
          * Clears the cache files in the specified cache directory.
          * When $cacheDir is specified, it should be provided as a subdirectory path from the default cache directory.
-         * For example "/queries/data/" will clear the cache files in the "resources/api/caches/queries/data/" directory.
+         * For example "/queries/data/" will clear the cache files in the "/queries/data/" directory.
          *
          * @param string|null $cacheDir The cache directory to clear. If null, the default cache directory is used.
          * @return self
