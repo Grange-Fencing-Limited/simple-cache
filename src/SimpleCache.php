@@ -19,7 +19,7 @@
         private string $cacheFilename;
         private int $freshness;
         private array $additionalParams;
-        private string $cacheRoot;
+        private ?string $cacheRoot;
         private string $endPoint;
 
         /**
@@ -35,10 +35,33 @@
          */
         public function __construct(int $freshness = 86400, array $addParams = [], ?string $forcedUri = null) {
 
-            $this->cacheRoot = $_ENV["SIMPLE_CACHE_DIRECTORY"];
+            $this->cacheRoot = $_ENV["SIMPLE_CACHE_DIRECTORY"] ?? null;
 
+            // If no cache directory provided, disable caching and warn.
+            if (is_null($this->cacheRoot)) {
+                error_log("SimpleCache: SIMPLE_CACHE_DIRECTORY environment variable is not set. Caching is disabled.", E_USER_WARNING);
+                return;
+            }
+
+            // Ensure cache root has trailing separator
             if (substr($this->cacheRoot, -1) !== DIRECTORY_SEPARATOR) {
                 $this->cacheRoot .= DIRECTORY_SEPARATOR;
+            }
+
+            // If cache root does not exist, attempt to create it.
+            if (!is_dir($this->cacheRoot)) {
+                if (!@mkdir($this->cacheRoot, 0755, true)) {
+                    error_log("SimpleCache: Failed to create cache directory '{$this->cacheRoot}'. Caching is disabled.", E_USER_WARNING);
+                    $this->cacheRoot = null; // Mark disabled
+                    return;
+                }
+            }
+
+            // Ensure it's writable
+            if (!is_writable($this->cacheRoot)) {
+                error_log("SimpleCache: Cache directory '{$this->cacheRoot}' is not writable. Caching is disabled.", E_USER_WARNING);
+                $this->cacheRoot = null;
+                return;
             }
 
             $this->freshness = $freshness;
@@ -58,10 +81,14 @@
          */
         private function generateCacheDir(?string $forcedUri = null): void {
 
+            if ($this->cacheRootInvalid()) {
+                return;
+            }
+
             if (!is_null($forcedUri)) {
                 $uri = $forcedUri;
             } else {
-                $uri = $_SERVER["REQUEST_URI"];
+                $uri = $_SERVER["REQUEST_URI"] ?? '';
             }
 
             $uriParts = $this->parseUri($uri);
@@ -104,9 +131,7 @@
          * @return bool True if the cache is fresh, false otherwise.
          */
         private function isFresh(): bool {
-            if (!$this->isCacheEnabled()) {
-                return false;
-            }
+
             $filePath = $this->cacheDir . $this->cacheFilename;
 
             if (file_exists($filePath)) {
@@ -134,7 +159,7 @@
                 }
 
                 // If we reach here, the cache is no longer fresh, delete it.
-                unlink($filePath);
+                @unlink($filePath);
             }
 
             return false;
@@ -149,6 +174,9 @@
          * @return void
          */
         public function save(array $data): void {
+            if ($this->cacheRootInvalid()) {
+                return;
+            }
             if (!$this->isCacheEnabled()) {
                 return;
             }
@@ -170,6 +198,9 @@
          * @return self
          */
         public function clearByUri(?string $cacheDir = null): static {
+            if ($this->cacheRootInvalid()) {
+                return $this;
+            }
             if (is_null($cacheDir)) {
                 $cacheDir = $this->cacheDir;
             } else {
@@ -187,6 +218,9 @@
          * @return self
          */
         public function clearAll(): static {
+            if ($this->cacheRootInvalid()) {
+                return $this;
+            }
             $this->deleteJsonFiles($this->cacheRoot, traverse: true);
             return $this;
         }
@@ -199,6 +233,9 @@
          * @param bool $traverse Whether to recursively delete JSON files in subdirectories.
          */
         private function deleteJsonFiles(string $directory, bool $traverse = false): void {
+            if ($this->cacheRootInvalid()) {
+                return;
+            }
             if (!is_dir($directory)) {
                 return;
             }
@@ -214,7 +251,7 @@
                     // Recursively delete JSON files in subdirectories if $traverse is true
                     $this->deleteJsonFiles($filePath, true);
                 } elseif (pathinfo($filePath, PATHINFO_EXTENSION) === 'json') {
-                    unlink($filePath);
+                    @unlink($filePath);
                 }
             }
         }
@@ -226,7 +263,12 @@
          * @return array|null The cached data, or null if the cache is not fresh or does not exist.
          */
         public function get(): ?array {
-            if (!$this->isFresh()) return null;
+            if ($this->cacheRootInvalid()) {
+                return null;
+            }
+            if (!$this->isFresh()) {
+                return null;
+            }
             if (file_exists($this->cacheDir . $this->cacheFilename)) {
 
                 $handle = fopen($this->cacheDir . $this->cacheFilename, 'r');
@@ -250,10 +292,22 @@
          * @return bool True if caching is enabled, false otherwise.
          */
         private function isCacheEnabled(): bool {
-            $cacheValue = $_ENV["SIMPLE_CACHE_ENABLED"] ?? 'true';
-            return $cacheValue === false
-                ? true
-                : filter_var($cacheValue, FILTER_VALIDATE_BOOLEAN);
+            $cacheValue = $_ENV["SIMPLE_CACHE_ENABLED"] ?? null;
+            // If not set, caching is enabled by default
+            if (is_null($cacheValue)) {
+                return true;
+            }
+            // Use FILTER_VALIDATE_BOOLEAN to accept common truthy/falsey strings
+            $validated = filter_var($cacheValue, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            return $validated ?? false;
+        }
+
+        /*
+         * Checks if the cache root directory is invalid.
+         */
+        private function cacheRootInvalid():  bool {
+            // Only treat a null cacheRoot as invalid. The constructor is responsible for creating/validating the directory.
+            return is_null($this->cacheRoot);
         }
 
         public function updateUri($uri): static {
@@ -265,6 +319,10 @@
         }
 
         public function updateAdditionalParams(array $array): static {
+
+            if (!$this->isCacheEnabled()) {
+                return $this;
+            }
 
             $this->additionalParams = $array;
             $this->generateFileName();
