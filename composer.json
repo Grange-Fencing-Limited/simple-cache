@@ -1,0 +1,21 @@
+{
+  "name": "grange-fencing/simple-cache",
+  "description": "Simple json caching for API use",
+  "type": "library",
+  "autoload": {
+    "psr-4": {
+      "GrangeFencing\\SimpleCache\\": "src/"
+    }
+  },
+  "authors": [
+    {
+      "name": "Craig Hancock",
+      "email": "c.hancock@grangefencing.co.uk"
+    }
+  ],
+  "minimum-stability": "stable",
+  "license": "proprietary",
+  "require": {
+    "php": ">=8.3"
+  }
+}
